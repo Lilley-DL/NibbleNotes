@@ -50,56 +50,46 @@ supabase = create_client(os.environ.get('SUPA_PROJECT_URL'),os.environ.get('SUPA
 
 ##USER MANAGEMENT
 class User(flask_login.UserMixin):
-    pass
+    def __init__(self, id, username, email):
+        self.id = id
+        self.username = username
+        self.email = email
 
 @login_manager.user_loader
-def user_loader(id):
-    sql = "SELECT EXISTS(SELECT 1 FROM users WHERE user_id = %s)"
-    values = (id,)
-    result,rows = db.get(sql,values)
-    user_exists = rows
-    
-    if user_exists[0]['exists'] == True:
+def user_loader(user_id):
+    try:
+        #check for user existense 
+        response = supabase.table('users').select('user_id').eq('user_id',user_id).execute()
+        user_exists = len(response.data) > 0
 
-        sql = "SELECT * FROM users WHERE user_id = %s"
-        values = (id,)
-        result,rows = db.get(sql,values)
-        info = rows[0] 
-
-        user = User()
-        user.id = info['user_id']
-        user.username = info['username']
-        user.email = info['email']
-        return user
-    else:
+        if user_exists:
+            response = supabase.table('users').select('user_id','username','email').eq('user_id',user_id).execute()
+            user_data = response.data[0]
+            return User(user_data['user_id'],user_data['username'],user_data['email'])
+        else:
+            return None
+    except Exception as e:
+        app.logger.info(f" -->> USER LOADER EXCEPTION :: {e}")
         return None
+
 
 @login_manager.request_loader
 def request_loader(request):
     email = request.form.get('email')
-    # con = get_db()
-    # cur = con.cursor()
+    try:
+        #check for user existense 
+        response = supabase.table('users').select('user_id').eq('email',email).execute()
+        user_exists = len(response.data) > 0
 
-    sql = "SELECT EXISTS(SELECT 1 FROM users WHERE email = %s)"
-    values = (email,)
-    result,rows = db.get(sql,values)
-    user_exists = rows
-
-    if user_exists[0]['exists'] == True:
-
-        sql = "SELECT * FROM users WHERE email = %s"
-        values = (email,)
-        result,rows = db.get(sql,values)
-        info = rows[0] 
-
-        user = User()
-        user.id = info['user_id']
-        user.username = info['username']
-        user.email = info['email']
-        return user
-    else:
+        if user_exists:
+            response = supabase.table('users').select('user_id','username','email').filter('email', eq=email).execute()
+            user_data = response.data[0]
+            return User(user_data['user_id'],user_data['username'],user_data['email'])
+        else:
+            return None
+    except Exception as e:
+        app.logger.info(f" -->> USER REQUEST LOADER EXCEPTION :: {e}")
         return None
-
 
 #                               ROUTES 
 @app.route("/")
@@ -116,8 +106,16 @@ def signup():
     password = None
 
     form = SignupForm()
+    
+    if request.method == 'GET':
+        #look for error messag in the url 
+        # form = SignupForm()
+        errors = request.args.get('errors')
+        return render_template("signup.html",username=username,email=email,password=password,form=form,errors=errors)
+
 
     if form.validate_on_submit():
+        app.logger.info(f" AFTER VALID SUBMIT :: {form}")
         username = form.username.data
         form.username.data = ''
 
@@ -127,28 +125,37 @@ def signup():
         password = form.password.data # might need to hash it here
         form.password.data = ''
 
-        #password salt
-        salt = os.urandom(32)
+        # #password salt
+        # salt = os.urandom(32)
 
-        hashed = hashlib.pbkdf2_hmac('sha256',password.encode('utf-8'),salt,1000) #iterations was 100,000 but i chose 1000
+        # hashed = hashlib.pbkdf2_hmac('sha256',password.encode('utf-8'),salt,1000) #iterations was 100,000 but i chose 1000
 
-        salt_hex = binascii.hexlify(salt).decode('utf-8')
+        # salt_hex = binascii.hexlify(salt).decode('utf-8')
 
-        sql = "INSERT INTO users (username,email,hash,salt) VALUES (%s,%s,%s,%s)"
-        # values = (username,email,hashed,salt,)
-        values = (username,email,binascii.hexlify(hashed).decode('utf-8'),salt_hex)
+        try:
+            # Check for existing user
+            # response = await supabase.table('users').select('user_id').filter('email', 'eq',email).execute()
+            response = supabase.table('users').select('user_id').eq('email',email).execute()
+            user_exists = len(response.data) > 0
 
-        result, message = db.insert(sql,values)
+            if not user_exists:
+                # No existing user, register new user
 
-        if result:
-            return redirect('/login')
-        else:
-            return redirect(url_for('signup',errors=f'{message}'))
+                hashed_password = supabase.auth.sign_up({"email":email,"password":password})
+                return redirect('/login')
+            else:
+                # User already exists, display error
+                # return render_template('signup.html', errors="Email already in use")
+                flash("email was elrady in use")
+                return redirect("/signup")
+        except Exception as e:
+            # Handle potential errors during Supabase interaction
+            print(f"Error during signup: {e}")
+            # return render_template('signup.html', errors="An error occurred. Please try again.")
+            flash(e)
+            return redirect("/signup")
 
-    if request.method == 'GET':
-        #look for error messag in the url 
-        errors = request.args.get('errors')
-        return render_template("signup.html",username=username,email=email,password=password,form=form,errors=errors)
+    #return render_template('signup.html')
 
 ##LOGIN
 
