@@ -1,0 +1,22 @@
+{% extends 'base.html' %}
+{% block title %}
+    Login
+{% endblock title %}
+
+{% if errors %}
+    {{errors}}
+{% endif %}
+
+{% block content %}
+{% if current_user.is_authenticated %}
+    <h1>Welcome {{current_user.username}}</h1>
+    
+{% endif %}
+
+
+
+{% endblock  %}
+
+{% block scripts %}
+    
+{% endblock scripts %}
