@@ -8,7 +8,7 @@
 {% endif %}
 
 {% block content %}
-{% if current_user.is_authenticated %}
+{% if current_user%}
     <h1>Welcome {{current_user.username}}</h1>
     
 {% endif %}

@@ -19,6 +19,7 @@ app.config['SECRET_KEY'] = os.environ.get('CSRF_SECRET_KEY')
 
 login_manager = flask_login.LoginManager()
 login_manager.init_app(app)
+login_manager.login_view = "login"
 
 db = None
 
@@ -49,47 +50,58 @@ class LoginForm(FlaskForm):
 supabase = create_client(os.environ.get('SUPA_PROJECT_URL'),os.environ.get('SUPA_API_KEY'))
 
 ##USER MANAGEMENT
+
+class CustomAnonymousUser(flask_login.AnonymousUserMixin):
+    def __init__(self):
+        self.id = None
+        self.username = "Guest"
+        self.email = None
+
+login_manager.anonymous_user = CustomAnonymousUser
+
+
 class User(flask_login.UserMixin):
     def __init__(self, id, username, email):
         self.id = id
         self.username = username
         self.email = email
 
-@login_manager.user_loader
-def user_loader(user_id):
+@login_manager.user_loader ##this is the one gemini created after i started using supabase auth instead of the og table for auth 
+def load_user(user_id):
     try:
-        #check for user existense 
-        response = supabase.table('users').select('user_id').eq('user_id',user_id).execute()
-        user_exists = len(response.data) > 0
-
-        if user_exists:
-            response = supabase.table('users').select('user_id','username','email').eq('user_id',user_id).execute()
-            user_data = response.data[0]
-            return User(user_data['user_id'],user_data['username'],user_data['email'])
-        else:
-            return None
+        response = supabase.auth.get_user()
+        user_data = response.user
+        app.logger.info(f"USER INFO FOR LOAD _USER {user_data}")
+        if user_data:
+            user_id = user_data.id
+            username = user_data.email
+            email = user_data.email
+        
+        # Create the User object
+        current_user = User(user_id, username, email)
+        return current_user
     except Exception as e:
         app.logger.info(f" -->> USER LOADER EXCEPTION :: {e}")
         return None
 
 
-@login_manager.request_loader
-def request_loader(request):
-    email = request.form.get('email')
-    try:
-        #check for user existense 
-        response = supabase.table('users').select('user_id').eq('email',email).execute()
-        user_exists = len(response.data) > 0
+# @login_manager.request_loader
+# async def request_loader(request):
+#     email = request.form.get('email')
+#     try:
+#         #check for user existense 
+#         response = supabase.table('users').select('user_id').eq('email',email).execute()
+#         user_exists = len(response.data) > 0
 
-        if user_exists:
-            response = supabase.table('users').select('user_id','username','email').filter('email', eq=email).execute()
-            user_data = response.data[0]
-            return User(user_data['user_id'],user_data['username'],user_data['email'])
-        else:
-            return None
-    except Exception as e:
-        app.logger.info(f" -->> USER REQUEST LOADER EXCEPTION :: {e}")
-        return None
+#         if user_exists:
+#             response = supabase.table('users').select('user_id','username','email').filter('email', eq=email).execute()
+#             user_data = response.data[0]
+#             return User(user_data['user_id'],user_data['username'],user_data['email'])
+#         else:
+#             return None
+#     except Exception as e:
+#         app.logger.info(f" -->> USER REQUEST LOADER EXCEPTION :: {e}")
+#         return None
 
 #                               ROUTES 
 @app.route("/")
@@ -124,13 +136,6 @@ def signup():
 
         password = form.password.data # might need to hash it here
         form.password.data = ''
-
-        # #password salt
-        # salt = os.urandom(32)
-
-        # hashed = hashlib.pbkdf2_hmac('sha256',password.encode('utf-8'),salt,1000) #iterations was 100,000 but i chose 1000
-
-        # salt_hex = binascii.hexlify(salt).decode('utf-8')
 
         try:
             # Check for existing user
@@ -177,40 +182,27 @@ def login():
         password = form.password.data # might need to hash it here
         form.password.data = ''
 
-        app.logger.info(f"USER LOGIN email:{email}")
-        #check for the presence of the user in the db 
-        result,userInfo = db.get("SELECT user_id,username,email,hash,salt FROM users WHERE email = %s",values=(email,))
-        app.logger.info(f"USER LOGIN RESULT:{result} , message: {userInfo}")
-        if userInfo:
-            app.logger.info(f"DATA IN USER INFO")
-        else:
-            #redirect  with message of no user 
-            app.logger.info(f"NO DATA IN USER INFO")
-            flash("No user profile")
-            return redirect(url_for('login'))
-
-        #hash the password
-        salt = binascii.unhexlify(userInfo[0]['salt'])
-        hashed = hashlib.pbkdf2_hmac('sha256',password.encode('utf-8'),salt,1000)
-        hashed_hex = binascii.hexlify(hashed)
-
-        app.logger.info(f" DB hash = {userInfo[0]['hash']}  :: input hex {hashed_hex.decode('utf-8')}")
-
-        if hashed_hex.decode('utf-8') == userInfo[0]['hash']:
-            app.logger.info("USER LOGGED IN")
-            user = User()
-            user.id = userInfo[0]['user_id']
-            user.username = userInfo[0]['username']
-            user.email = userInfo[0]['email']
-
-            flask_login.login_user(user)
-            return redirect('/profile')
-
-        else:
-            app.logger.info("USER NOT LOGGED IN")
-            return render_template('login.html', form=form, errors="something went wrong. try again")
+        try:
+            sign_in = supabase.auth.sign_in_with_password({"email": email, "password": password})
+            user_data = sign_in.user
+            app.logger.info(f"USER INFO FOR LOGIN {user_data}")
+            if user_data:
+                user_id = user_data.id
+                username = user_data.email
+                email = user_data.email
         
-    #ther is no else for the above valid form check so may need that in future 
+        # Create the User object
+                current_user = User(user_id, username, email)
+                flask_login.login_user(current_user)
+                return redirect('/profile')
+            else:
+                flash("User login failed")
+                return render_template('login.html', error='Invalid credentials',form=form)
+
+        except Exception as e:
+            # Handle errors, e.g., incorrect credentials
+            flash(e)
+            return render_template('login.html', error='Invalid credentials',form=form)
     
     if request.method == 'GET':
         #look for error messag in the url 
@@ -222,13 +214,15 @@ def login():
 @app.route("/profile",methods=['GET','POST'])
 @flask_login.login_required
 def profile():
-    #get the logged in user 
-    currentUser = None
+    current_user = flask_login.current_user  # Automatically set by Flask-Login
 
-    if flask_login.current_user.is_authenticated:
-        currentUser = flask_login.current_user
+    # Safely handle the user object
+    if not current_user.is_authenticated:
+        app.logger.info("User is not authenticated. Redirecting to login.")
+        return redirect('/login')  # Redirect unauthenticated users
 
-    return render_template("profile.html",user=currentUser)
+    # Render profile page for authenticated users
+    return render_template("profile.html", user=current_user)
 
 @app.route("/createEntry",methods=['GET','POST'])
 @flask_login.login_required
@@ -281,7 +275,9 @@ def createEntry():
 
 @app.route("/logout")
 def logout():
+    response = supabase.auth.sign_out()
     flask_login.logout_user()
+    flash(f"User logged out :: {response}")
     return redirect(url_for('index'))
 
 @login_manager.unauthorized_handler
