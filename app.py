@@ -85,24 +85,6 @@ def load_user(user_id):
         return None
 
 
-# @login_manager.request_loader
-# async def request_loader(request):
-#     email = request.form.get('email')
-#     try:
-#         #check for user existense 
-#         response = supabase.table('users').select('user_id').eq('email',email).execute()
-#         user_exists = len(response.data) > 0
-
-#         if user_exists:
-#             response = supabase.table('users').select('user_id','username','email').filter('email', eq=email).execute()
-#             user_data = response.data[0]
-#             return User(user_data['user_id'],user_data['username'],user_data['email'])
-#         else:
-#             return None
-#     except Exception as e:
-#         app.logger.info(f" -->> USER REQUEST LOADER EXCEPTION :: {e}")
-#         return None
-
 #                               ROUTES 
 @app.route("/")
 def index():
@@ -116,7 +98,6 @@ def signup():
     username = None
     email = None
     password = None
-
     form = SignupForm()
     
     if request.method == 'GET':
@@ -124,8 +105,7 @@ def signup():
         # form = SignupForm()
         errors = request.args.get('errors')
         return render_template("signup.html",username=username,email=email,password=password,form=form,errors=errors)
-
-
+    
     if form.validate_on_submit():
         app.logger.info(f" AFTER VALID SUBMIT :: {form}")
         username = form.username.data
@@ -139,13 +119,11 @@ def signup():
 
         try:
             # Check for existing user
-            # response = await supabase.table('users').select('user_id').filter('email', 'eq',email).execute()
             response = supabase.table('users').select('user_id').eq('email',email).execute()
             user_exists = len(response.data) > 0
 
             if not user_exists:
                 # No existing user, register new user
-
                 hashed_password = supabase.auth.sign_up({"email":email,"password":password})
                 return redirect('/login')
             else:
@@ -277,20 +255,14 @@ def createEntry():
 def logout():
     response = supabase.auth.sign_out()
     flask_login.logout_user()
-    flash(f"User logged out :: {response}")
+    flash(f"Logged out succesfully")
     return redirect(url_for('index'))
 
 @login_manager.unauthorized_handler
 def unauthorized_handler():
     #return "Unauthorized", 401
-    return redirect(url_for('index'))
-
-
-
-
-
-
-
+    flash("Please login")
+    return redirect(url_for('login'))
 
 
 ##for render to run 
