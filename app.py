@@ -198,14 +198,23 @@ def profile():
     if not current_user.is_authenticated:
         app.logger.info("User is not authenticated. Redirecting to login.")
         return redirect('/login')  # Redirect unauthenticated users
+    
+    #get the entries for this user 
+    
+    response = supabase.table("entry").select("*").eq("user_id", current_user.id).execute()
+    r2 = supabase.table("accumulated_calories_for_user").select("*").execute()
+    totalCalories = r2.data
+
+    entries = response.data if response.data else []
+    app.logger.info(f"SUPA RETREIVED {entries}")
 
     # Render profile page for authenticated users
-    return render_template("profile.html", user=current_user)
+    return render_template("profile.html", user=current_user, entries=entries,totalCals = totalCalories)
 
 @app.route("/createEntry",methods=['GET','POST'])
 @flask_login.login_required
 def createEntry():
-
+    app.logger.info(f"User is authenticated: {flask_login.current_user.is_authenticated}")
     if request.method == "POST":
 
         app.logger.info(f"REQUEST FORM DATA {request.form}")
@@ -220,11 +229,11 @@ def createEntry():
             "fibre":None
         }
                 #macro info
-        calories = request.form.get('calories')
-        protein = request.form.get('protein')
-        fats = request.form.get('fats')
-        carbs = request.form.get('carbs')
-        fibre = request.form.get('fibre')
+        calories = float(request.form.get('calories'))
+        protein = float(request.form.get('protein'))
+        fats = float(request.form.get('fats'))
+        carbs = float(request.form.get('carbs'))
+        fibre = float(request.form.get('fibre'))
 
         #sanitize and check for negative values 
         
@@ -234,17 +243,18 @@ def createEntry():
         macros['carbs'] = carbs
         macros['fibre'] = fibre
 
-        sql = """INSERT INTO public.entry(
-	        entry_data, entry_name, user_id)
-	        VALUES (%s,%s,%s);"""
-        values = (json.dumps(macros),entryName,flask_login.current_user.id)
+        data = {
+            "entry_data":macros,
+            "entry_name":entryName,
+        }
 
-        result, message = db.insert(sql,values)
-
-        if result:
-            flash("Entry saved")
-        else:
-            flash(f"Entry not saved -- {message}")
+        try:
+            response = supabase.table("entry").insert(data).execute()
+            app.logger.info(f"RESPONSE FROM SUPA INSERT = {response}")
+        except Exception as e:
+            app.logger.info(f"RESPONSE FROM SUPA error = {e}")
+            flash(f"something went wrong :: {e}")
+            return redirect(url_for("createEntry"))
 
         return redirect(url_for("createEntry"))
 

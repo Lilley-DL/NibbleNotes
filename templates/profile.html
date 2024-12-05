@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 {% block title %}
-    Login
+    Profile
 {% endblock title %}
 
 {% if errors %}
@@ -10,9 +10,30 @@
 {% block content %}
 {% if current_user%}
     <h1>Welcome {{current_user.username}}</h1>
+    <h3>Your id = {{current_user.id}}</h3>
     
 {% endif %}
 
+{% if entries %}
+    {% for entry in entries %}
+    <h3>{{entry.entry_name}} </h3>
+    
+        {% for key in entry.entry_data %}
+            {{key}} ::
+            {{entry.entry_data[key]}}
+            <br>
+        {% endfor %}
+        <hr>
+    {% endfor %}
+{% endif %}
+
+{% if totalCals %}
+    {% for date in totalCals %}
+        <h4>{{date.entry_date}}</h4>
+        Kcal: {{date.total_value}}
+    {% endfor %}
+
+{% endif %}
 
 
 {% endblock  %}
