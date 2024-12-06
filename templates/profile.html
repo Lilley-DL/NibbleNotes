@@ -14,6 +14,13 @@
     
 {% endif %}
 
+<div id="search">
+    <form action="/search" method="post">
+        <label for="search-date">Date</label>
+        <input type="date" name="search-date" id="search-date">
+    </form>
+</div>
+
 {% if entries %}
     {% for entry in entries %}
     <h3>{{entry.entry_name}} </h3>
